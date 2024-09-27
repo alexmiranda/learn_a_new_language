@@ -1,0 +1,4 @@
+.devenv
+.direnv/
+.zig-cache/
+zig-out/
