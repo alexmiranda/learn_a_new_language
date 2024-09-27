@@ -6,38 +6,11 @@ const mem = std.mem;
 const print = std.debug.print;
 const file = @embedFile("exchange_rates_usd.json");
 
-const ConversionRate = struct { base: []const u8, date: []const u8, rates: struct {
-    BGN: f32,
-    BRL: f32,
-    CAD: f32,
-    CHF: f32,
-    CNY: f32,
-    CZK: f32,
-    DKK: f32,
-    GBP: f32,
-    HKD: f32,
-    HRK: f32,
-    HUF: f32,
-    IDR: f32,
-    ILS: f32,
-    INR: f32,
-    JPY: f32,
-    KRW: f32,
-    MXN: f32,
-    MYR: f32,
-    NOK: f32,
-    NZD: f32,
-    PHP: f32,
-    PLN: f32,
-    RON: f32,
-    RUB: f32,
-    SEK: f32,
-    SGD: f32,
-    THB: f32,
-    TRY: f32,
-    ZAR: f32,
-    EUR: f32,
-} };
+const ConversionRate = struct {
+    base: []const u8,
+    date: []const u8,
+    rates: json.Value,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -63,9 +36,16 @@ pub fn main() !void {
 }
 
 fn findExchangeRate(conv: ConversionRate, currency: []const u8) ?f32 {
-    inline for (meta.fields(@TypeOf(conv.rates))) |field| {
-        if (mem.eql(u8, field.name, currency)) {
-            return @field(conv.rates, field.name);
-        }
-    } else return null;
+    switch (conv.rates) {
+        .object => |obj| {
+            if (obj.get(currency)) |rate| {
+                switch (rate) {
+                    .float => |value| return @floatCast(value),
+                    else => @panic("invalid json!"),
+                }
+            }
+            return null;
+        },
+        else => unreachable,
+    }
 }
