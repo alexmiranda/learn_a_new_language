@@ -77,7 +77,7 @@ pub fn main() !void {
         if (start_pos >= mmap.len) break;
     }
 
-    // wait for all the jobs to finish
+    // wait for all jobs to finish
     pool.waitAndWork(&wg);
 
     // aggregate results using simd
@@ -100,7 +100,6 @@ pub fn main() !void {
 
     var i: u16 = 0;
     while (i < max_countries) : (i += 1) {
-        // safe to use raw value because no other thread is reading or writing at this point
         const sold = acc[i];
         if (sold > 0) {
             try max_heap.add(.{ .country = i, .total_sales = sold });
