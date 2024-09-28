@@ -25,7 +25,8 @@ pub fn main() !void {
     const start = std.time.nanoTimestamp();
     defer {
         const end = std.time.nanoTimestamp();
-        stdout.print("Took: {d} nanoseconds.\n", .{end - start}) catch {};
+        const millis = @divFloor(end - start, 1000);
+        stdout.print("Took: {d} nanoseconds {d} Milliseconds.\n", .{ end - start, millis }) catch {};
     }
 
     const process = std.process;
