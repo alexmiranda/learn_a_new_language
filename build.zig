@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "learn_a_new_language",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/quality_check.zig"),
         .target = target,
         .optimize = optimize,
     });
