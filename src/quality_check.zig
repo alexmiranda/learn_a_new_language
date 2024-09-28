@@ -112,11 +112,20 @@ fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
     const json = std.json;
     var country_sales: [max_countries]T = [_]T{0} ** max_countries;
 
+    // memory required is equal to the number of bytes needed by the bitstack used by json scanner
+    const memory_required = (2 + 7) << 3;
+    var bytes: [memory_required]u8 = undefined;
+    var fba = heap.FixedBufferAllocator.init(&bytes);
+    const ally = fba.allocator();
+
     assert(buffer[0] == '{' and buffer[buffer.len - 1] == '}');
     var it = mem.tokenizeScalar(u8, buffer, '\n');
     outer_loop: while (it.next()) |line| {
+        // ensure we reset the fixed buffer allocator on every new line
+        defer fba.reset();
+
         assert(line[0] == '{' and line[line.len - 1] == '}');
-        var scanner = json.Scanner.initCompleteInput(heap.c_allocator, line);
+        var scanner = json.Scanner.initCompleteInput(ally, line);
         defer scanner.deinit();
 
         // prealloc two levels, as we know the json contain at most two nesting levels
