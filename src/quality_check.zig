@@ -3,6 +3,7 @@ const heap = std.heap;
 const mem = std.mem;
 const Pool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
+const Mutex = std.Thread.Mutex;
 const Order = std.math.Order;
 const print = std.debug.print;
 const assert = std.debug.assert;
@@ -11,6 +12,7 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 
 const T = u16;
 const max_countries = 26 * 26;
+const SalesVec = @Vector(max_countries, T);
 
 const Stat = struct {
     country: u16,
@@ -61,23 +63,28 @@ pub fn main() !void {
     defer pool.deinit();
 
     // country sales
-    var country_sales: [max_countries]std.atomic.Value(T) = undefined;
-    for (0..max_countries) |slide| {
-        country_sales[slide] = std.atomic.Value(T).init(0);
-    }
+    var country_sales = try std.ArrayList(SalesVec).initCapacity(ally, n_jobs);
+    defer country_sales.deinit();
 
     // spawn each worker reusing the thread pool
     var start_pos: usize = 0;
+    var mut = Mutex{};
     for (1..n_jobs + 1) |job_id| {
         const pos = mmap.len / n_jobs * job_id;
         const end_pos = mem.indexOfScalarPos(u8, mmap, pos, '\n') orelse mmap.len;
-        pool.spawnWg(&wg, work, .{ job_id, mmap[start_pos..end_pos], &country_sales });
+        pool.spawnWg(&wg, work, .{ job_id, mmap[start_pos..end_pos], &country_sales, &mut });
         start_pos = end_pos +| 1;
         if (start_pos >= mmap.len) break;
     }
 
     // wait for all the jobs to finish
     pool.waitAndWork(&wg);
+
+    // aggregate results using simd
+    var acc: SalesVec = country_sales.items[0];
+    for (country_sales.items[1..]) |partial_sales| {
+        acc = acc + partial_sales;
+    }
 
     // sort countries by total sales
     const Context = struct {
@@ -94,7 +101,7 @@ pub fn main() !void {
     var i: u16 = 0;
     while (i < max_countries) : (i += 1) {
         // safe to use raw value because no other thread is reading or writing at this point
-        const sold = country_sales[i].raw;
+        const sold = acc[i];
         if (sold > 0) {
             try max_heap.add(.{ .country = i, .total_sales = sold });
         }
@@ -108,9 +115,9 @@ pub fn main() !void {
     }
 }
 
-fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
+fn work(job_id: usize, buffer: []const u8, totals: *std.ArrayList(SalesVec), mut: *Mutex) void {
     const json = std.json;
-    var country_sales: [max_countries]T = [_]T{0} ** max_countries;
+    var country_sales: SalesVec = @splat(0);
 
     // memory required is equal to the number of bytes needed by the bitstack used by json scanner
     const memory_required = (2 + 7) << 3;
@@ -173,11 +180,14 @@ fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
         }
     }
 
-    // update the total country sales
-    for (totals, 0..) |*sold, slide| {
-        if (country_sales[slide] > 0) {
-            _ = sold.fetchAdd(country_sales[slide], .acq_rel);
-        }
+    // report back the country sales to main thread
+    // a block here makes the critical region as minimal as possible
+    // if we need to add more code to the function body...
+    {
+        mut.lock();
+        defer mut.unlock();
+        // safe because we preallocate capacity in the main thread
+        totals.appendAssumeCapacity(country_sales);
     }
 }
 
