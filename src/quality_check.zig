@@ -121,6 +121,9 @@ fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
         var scanner = json.Scanner.initCompleteInput(heap.c_allocator, line);
         defer scanner.deinit();
 
+        // prealloc two levels, as we know the json contain at most two nesting levels
+        scanner.ensureTotalStackCapacity(2) catch {};
+
         var token: json.Token = undefined;
         var last_str: []const u8 = "";
         var id: []const u8 = "";
