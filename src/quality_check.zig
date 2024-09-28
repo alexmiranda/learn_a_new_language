@@ -1,17 +1,14 @@
 const std = @import("std");
 const heap = std.heap;
 const mem = std.mem;
-const simd = std.simd;
 const Pool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
-const Mutex = std.Thread.Mutex;
 const Order = std.math.Order;
 const print = std.debug.print;
 const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-// the type for counting total sales, the smaller it is, the better is the performance for vectorised computations
 const T = u16;
 const max_countries = 26 * 26;
 
@@ -60,7 +57,6 @@ pub fn main() !void {
     var wg = WaitGroup{};
     var pool: Pool = undefined;
     const n_jobs: u32 = @intCast(try std.Thread.getCpuCount());
-    // const n_jobs: u32 = 2;
     try pool.init(.{ .allocator = ally, .n_jobs = n_jobs });
     defer pool.deinit();
 
@@ -92,7 +88,9 @@ pub fn main() !void {
     };
 
     var max_heap = std.PriorityQueue(Stat, void, Context.compare).init(ally, {});
+    defer max_heap.deinit();
     try max_heap.ensureTotalCapacity(max_countries);
+
     var i: u16 = 0;
     while (i < max_countries) : (i += 1) {
         // safe to use raw value because no other thread is reading or writing at this point
