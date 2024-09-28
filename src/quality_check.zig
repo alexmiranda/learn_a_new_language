@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-const T = u16;
+const T = f64;
 const max_countries = 26 * 26;
 const SalesVec = @Vector(max_countries, T);
 
@@ -111,7 +111,7 @@ pub fn main() !void {
     var buf: [2]u8 = undefined;
     for (1..11) |rank| {
         const stat = max_heap.removeOrNull() orelse break;
-        try stdout.print("{d:0>2}. country={s} total_sales={d}\n", .{ rank, countryCodeFromIndex(stat.country, &buf), stat.total_sales });
+        try stdout.print("{d:0>2}. country={s} total_sales={d:.2}\n", .{ rank, countryCodeFromIndex(stat.country, &buf), stat.total_sales });
     }
 }
 
@@ -141,6 +141,7 @@ fn work(job_id: usize, buffer: []const u8, totals: *std.ArrayList(SalesVec), mut
         var token: json.Token = undefined;
         var last_str: []const u8 = "";
         var id: []const u8 = "";
+        var amount: T = 0;
         while (true) {
             token = scanner.next() catch |err| {
                 switch (err) {
@@ -162,15 +163,16 @@ fn work(job_id: usize, buffer: []const u8, totals: *std.ArrayList(SalesVec), mut
                     }
 
                     // filter out negative amounts
-                    if (mem.eql(u8, last_str, "amount") and str[0] == '-') {
-                        continue :outer_loop;
+                    if (mem.eql(u8, last_str, "amount")) {
+                        if (str[0] == '-') continue :outer_loop;
+                        amount = std.fmt.parseFloat(T, str) catch @panic("invalid float!");
                     }
 
                     // TODO: filter out invalid credit card
 
                     // increment country sales
                     if (mem.eql(u8, last_str, "country")) {
-                        country_sales[countryCodeIndex(str)] += 1;
+                        country_sales[countryCodeIndex(str)] += amount;
                     }
 
                     last_str = str;
