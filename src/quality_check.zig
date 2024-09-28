@@ -26,7 +26,7 @@ pub fn main() !void {
     defer {
         const end = std.time.nanoTimestamp();
         const millis = @divFloor(end - start, 1000);
-        stdout.print("Took: {d} nanoseconds {d} Milliseconds.\n", .{ end - start, millis }) catch {};
+        stdout.print("Took {d} nanoseconds; {d} milliseconds.\n", .{ end - start, millis }) catch {};
     }
 
     const process = std.process;
@@ -60,19 +60,22 @@ pub fn main() !void {
     var wg = WaitGroup{};
     var pool: Pool = undefined;
     const n_jobs: u32 = @intCast(try std.Thread.getCpuCount());
+    // const n_jobs: u32 = 2;
     try pool.init(.{ .allocator = ally, .n_jobs = n_jobs });
     defer pool.deinit();
 
     // country sales
-    var country_sales: @Vector(max_countries, T) = @splat(0);
-    var mutex = Mutex{};
+    var country_sales: [max_countries]std.atomic.Value(T) = undefined;
+    for (0..max_countries) |slide| {
+        country_sales[slide] = std.atomic.Value(T).init(0);
+    }
 
     // spawn each worker reusing the thread pool
     var start_pos: usize = 0;
     for (1..n_jobs + 1) |job_id| {
         const pos = mmap.len / n_jobs * job_id;
         const end_pos = mem.indexOfScalarPos(u8, mmap, pos, '\n') orelse mmap.len;
-        pool.spawnWg(&wg, work, .{ ally, job_id, mmap[start_pos..end_pos], &country_sales, &mutex });
+        pool.spawnWg(&wg, work, .{ job_id, mmap[start_pos..end_pos], &country_sales });
         start_pos = end_pos +| 1;
         if (start_pos >= mmap.len) break;
     }
@@ -92,8 +95,10 @@ pub fn main() !void {
     try max_heap.ensureTotalCapacity(max_countries);
     var i: u16 = 0;
     while (i < max_countries) : (i += 1) {
-        if (country_sales[i] > 0) {
-            try max_heap.add(.{ .country = i, .total_sales = country_sales[i] });
+        // safe to use raw value because no other thread is reading or writing at this point
+        const sold = country_sales[i].raw;
+        if (sold > 0) {
+            try max_heap.add(.{ .country = i, .total_sales = sold });
         }
     }
 
@@ -105,43 +110,42 @@ pub fn main() !void {
     }
 }
 
-fn work(ally: mem.Allocator, job_id: usize, buffer: []const u8, totals: *@Vector(max_countries, T), mutex: *Mutex) void {
-    _ = job_id;
+fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
     const json = std.json;
-    var country_sales: @Vector(26 * 26, T) = @splat(0);
+    var country_sales: [max_countries]T = [_]T{0} ** max_countries;
 
+    assert(buffer[0] == '{' and buffer[buffer.len - 1] == '}');
     var it = mem.tokenizeScalar(u8, buffer, '\n');
     outer_loop: while (it.next()) |line| {
-        var scanner = json.Scanner.initCompleteInput(ally, line);
+        assert(line[0] == '{' and line[line.len - 1] == '}');
+        var scanner = json.Scanner.initCompleteInput(heap.c_allocator, line);
         defer scanner.deinit();
 
         var token: json.Token = undefined;
-        var lvl: u8 = 0;
-        var last_str: []const u8 = undefined;
-        var id: []const u8 = undefined;
+        var last_str: []const u8 = "";
+        var id: []const u8 = "";
         while (true) {
             token = scanner.next() catch |err| {
                 switch (err) {
                     error.OutOfMemory => return,
-                    else => continue :outer_loop,
+                    else => {
+                        print("job_id={d} err={s} id={s} cursor={d}\n", .{ job_id, @errorName(err), id, scanner.cursor });
+                        continue :outer_loop;
+                    },
                 }
             };
             switch (token) {
-                .object_begin => {
-                    lvl += 1;
-                },
-                .object_end => {
-                    // reached object_end, but the level was 0!
-                    if (lvl == 0) @panic("invalid json!");
-                },
-                .end_of_document => {
-                    continue :outer_loop;
-                },
-                .string => |str| {
+                .end_of_document => continue :outer_loop,
+                .string, .number => |str| {
                     if (mem.eql(u8, last_str, "id")) id = str;
 
                     // filter out empty name
                     if (mem.eql(u8, last_str, "name") and str.len == 0) {
+                        continue :outer_loop;
+                    }
+
+                    // filter out negative amounts
+                    if (mem.eql(u8, last_str, "amount") and str[0] == '-') {
                         continue :outer_loop;
                     }
 
@@ -154,21 +158,15 @@ fn work(ally: mem.Allocator, job_id: usize, buffer: []const u8, totals: *@Vector
 
                     last_str = str;
                 },
-                .number => |str| {
-                    // filter out negative amount
-                    if (mem.eql(u8, last_str, "amount") and str[0] == '-') {
-                        continue :outer_loop;
-                    }
-                },
                 else => {},
             }
         }
     }
 
     // update the total country sales
-    mutex.lock();
-    defer mutex.unlock();
-    totals.* = totals.* + country_sales;
+    for (totals, 0..) |*sold, slide| {
+        _ = sold.fetchAdd(country_sales[slide], .acq_rel);
+    }
 }
 
 fn countryCodeIndex(country: []const u8) u16 {
