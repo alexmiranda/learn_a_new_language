@@ -172,6 +172,7 @@ fn work(job_id: usize, buffer: []const u8, totals: *std.ArrayList(SalesVec), mut
                     // increment country sales
                     if (mem.eql(u8, last_str, "country")) {
                         country_sales[countryCodeIndex(str)] += amount;
+                        continue :outer_loop;
                     }
 
                     last_str = str;

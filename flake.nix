@@ -32,13 +32,22 @@
               modules = [
                 {
                   # https://devenv.sh/reference/options/
-                  packages = with pkgs; [ zig zls ];
+                  packages = with pkgs; [ zig zls hyperfine ];
 
                   enterShell = ''
                     ${pkgs.hello}/bin/hello
                   '';
 
                   processes.hello.exec = "hello";
+                  scripts.benchmark.exec = ''
+                    ${pkgs.gzip}/bin/gzip -d data/payments-1M.jsonl.gz --keep -f && \
+                    ${pkgs.hyperfine}/bin/hyperfine \
+                      --warmup 3 \
+                      --runs 10 \
+                      --parameter-list mode fast,safe,small \
+                      --setup 'zig build --release={mode}' \
+                      'zig-out/bin/learn_a_new_language data/payments-1M.jsonl'
+                  '';
                 }
               ];
             };

@@ -2,3 +2,4 @@
 .direnv/
 .zig-cache/
 zig-out/
+data/payments-1M.jsonl
