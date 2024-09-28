@@ -168,7 +168,9 @@ fn work(job_id: usize, buffer: []const u8, totals: []std.atomic.Value(T)) void {
 
     // update the total country sales
     for (totals, 0..) |*sold, slide| {
-        _ = sold.fetchAdd(country_sales[slide], .acq_rel);
+        if (country_sales[slide] > 0) {
+            _ = sold.fetchAdd(country_sales[slide], .acq_rel);
+        }
     }
 }
 
