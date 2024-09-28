@@ -25,7 +25,7 @@ pub fn main() !void {
     const start = std.time.nanoTimestamp();
     defer {
         const end = std.time.nanoTimestamp();
-        const millis = @divFloor(end - start, 1000);
+        const millis = @divFloor(end - start, 1_000_000);
         stdout.print("Took {d} nanoseconds; {d} milliseconds.\n", .{ end - start, millis }) catch {};
     }
 
